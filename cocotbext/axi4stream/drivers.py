@@ -34,6 +34,7 @@ from cocotb.result import TestFailure
 
 import copy
 
+import numpy as np
 
 class Axi4StreamMaster(BusDriver):
     """
@@ -71,7 +72,7 @@ class Axi4StreamMaster(BusDriver):
                     pass
 
     @cocotb.coroutine
-    async def write(self, data, sync=True, tlast_on_last=True):
+    async def write(self, data, sync=True, tlast_on_last=True, prob = 0.0):
         """
         Write one or more values on the bus.
 
@@ -106,6 +107,10 @@ class Axi4StreamMaster(BusDriver):
         self.bus.TVALID <= 1
 
         for index, word in enumerate(data):
+            while np.random.rand() < prob:
+                self.bus.TVALID <= 0
+                await RisingEdge(self.clock)
+            self.bus.TVALID <= 1
             # If word is not a dict, make it (using word as "TDATA")
             if not isinstance(word, dict):
                 word = {"TDATA": word}
@@ -127,9 +132,8 @@ class Axi4StreamMaster(BusDriver):
                     getattr(self.bus, signal) <= value
                 except AttributeError:
                     raise TestFailure(err_msg + "not present on the bus")
-
-            if hasattr(self.bus, "TLAST") and tlast_on_last and \
-               index == len(data) - 1:
+            
+            if hasattr(self.bus, "TLAST") and tlast_on_last and index == len(data) - 1:
                 self.bus.TLAST <= 1
 
             await RisingEdge(self.clock)
@@ -195,6 +199,7 @@ class Axi4StreamSlave(BusDriver):
             if not callable(tready_delay) and tready_delay == -1:
                 # If TREADY has to be always high, just set it to 1
                 self.bus.TREADY.setimmediatevalue(1)
+                cocotb.fork(self._receive_data2())
             else:
                 # If not, set it to zero and fork _receive_data
                 self.bus.TREADY.setimmediatevalue(0)
@@ -203,6 +208,16 @@ class Axi4StreamSlave(BusDriver):
                 self.consecutive_transfers = consecutive_transfers
 
                 cocotb.fork(self._receive_data())
+
+    @cocotb.coroutine
+    async def _receive_data2(self):
+        while True:
+            while np.random.rand() < 0.01:
+                self.bus.TREADY <= 0
+                for i in range(0,np.random.randint(1,2**5)):
+                    await RisingEdge(self.clock)
+            self.bus.TREADY <= 1
+            await RisingEdge(self.clock)
 
     @cocotb.coroutine
     async def _receive_data(self):
